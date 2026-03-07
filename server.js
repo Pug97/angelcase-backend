@@ -7,12 +7,18 @@ import db from './db.js';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'https://pug97.github.io';
 const RECEIVER_WALLET =
   process.env.RECEIVER_WALLET || 'UQBwcw41wYAnPcQuHFtB9a_khXQLQR3LUCq5hMsyyQGuj37k';
 
-app.use(cors({ origin: FRONTEND_ORIGIN }));
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN,
+    credentials: false
+  })
+);
+
 app.use(express.json());
 
 const casePools = {
@@ -62,6 +68,10 @@ async function ensureUser(telegramId, username = '') {
   );
 }
 
+app.get('/', (req, res) => {
+  res.json({ ok: true, message: 'AngelCase backend is running' });
+});
+
 app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
@@ -75,6 +85,7 @@ app.get('/api/profile/:telegramId', async (req, res) => {
     );
     res.json(user);
   } catch (error) {
+    console.error('profile_error:', error);
     res.status(500).json({ error: 'profile_error' });
   }
 });
@@ -97,6 +108,7 @@ app.post('/api/profile/bind-wallet', async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
+    console.error('bind_wallet_error:', error);
     res.status(500).json({ error: 'bind_wallet_error' });
   }
 });
@@ -130,6 +142,7 @@ app.post('/api/deposits/create', async (req, res) => {
       status: 'created'
     });
   } catch (error) {
+    console.error('deposit_create_error:', error);
     res.status(500).json({ error: 'deposit_create_error' });
   }
 });
@@ -149,13 +162,14 @@ app.get('/api/deposits/:orderId', async (req, res) => {
 
     res.json(deposit);
   } catch (error) {
+    console.error('deposit_status_error:', error);
     res.status(500).json({ error: 'deposit_status_error' });
   }
 });
 
 /*
-  ВРЕМЕННАЯ ручка для теста начисления без проверки блокчейна.
-  Когда подключим реальную проверку TON, её удалим.
+  Временная ручка для тестового начисления без проверки блокчейна.
+  Позже заменим на реальную проверку TON-транзакции.
 */
 app.post('/api/deposits/confirm-demo', async (req, res) => {
   const { orderId } = req.body;
@@ -194,6 +208,7 @@ app.post('/api/deposits/confirm-demo', async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
+    console.error('deposit_confirm_error:', error);
     res.status(500).json({ error: 'deposit_confirm_error' });
   }
 });
@@ -213,6 +228,10 @@ app.post('/api/cases/open', async (req, res) => {
       `SELECT * FROM users WHERE telegram_id = ?`,
       [telegramId]
     );
+
+    if (!user) {
+      return res.status(404).json({ error: 'user_not_found' });
+    }
 
     if (Number(user.balance) < parsedPrice) {
       return res.status(400).json({ error: 'not_enough_balance' });
@@ -245,10 +264,15 @@ app.post('/api/cases/open', async (req, res) => {
       newBalance: updatedUser.balance
     });
   } catch (error) {
+    console.error('case_open_error:', error);
     res.status(500).json({ error: 'case_open_error' });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`AngelCase backend running on http://localhost:${PORT}`);
+app.use((req, res) => {
+  res.status(404).json({ error: 'not_found' });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`AngelCase backend running on port ${PORT}`);
 });
