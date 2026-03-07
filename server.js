@@ -1,278 +1,512 @@
-import express from 'express';
-import cors from 'cors';
-import crypto from 'crypto';
-import dotenv from 'dotenv';
-import db from './db.js';
+const tg = window.Telegram?.WebApp
+if (tg) tg.expand()
 
-dotenv.config();
+const RECEIVER_WALLET = 'UQBwcw41wYAnPcQuHFtB9a_khXQLQR3LUCq5hMsyyQGuj37k'
+const API_BASE = 'https://angelcase-backend-production-f2fc.up.railway.app'
+const MANIFEST_URL = 'https://Pug97.github.io/angel-case-site/tonconnect-manifest.json'
 
-const app = express();
-const PORT = Number(process.env.PORT) || 3000;
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'https://pug97.github.io';
-const RECEIVER_WALLET =
-  process.env.RECEIVER_WALLET || 'UQBwcw41wYAnPcQuHFtB9a_khXQLQR3LUCq5hMsyyQGuj37k';
+const tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+  manifestUrl: MANIFEST_URL,
+  buttonRootId: 'tonConnectButton'
+})
 
-app.use(
-  cors({
-    origin: FRONTEND_ORIGIN,
-    credentials: false
-  })
-);
+const casesPage = document.getElementById('casesPage')
+const profilePage = document.getElementById('profilePage')
+const roulettePage = document.getElementById('roulettePage')
 
-app.use(express.json());
+const navCases = document.getElementById('navCases')
+const navProfile = document.getElementById('navProfile')
+const pageSubtitle = document.getElementById('pageSubtitle')
 
-const casePools = {
+const balanceValue = document.getElementById('balanceValue')
+const telegramName = document.getElementById('telegramName')
+const telegramId = document.getElementById('telegramId')
+const walletValue = document.getElementById('walletValue')
+
+const topupAmount = document.getElementById('topupAmount')
+const payTonBtn = document.getElementById('payTonBtn')
+const depositInfo = document.getElementById('depositInfo')
+
+const itemsContainer = document.getElementById('items')
+const spinSound = document.getElementById('spinSound')
+const openCaseBtn = document.getElementById('openCase')
+const rouletteCaseName = document.getElementById('rouletteCaseName')
+const backToCasesBtn = document.getElementById('backToCasesBtn')
+
+const winPopup = document.getElementById('winPopup')
+const popupItem = document.getElementById('popupItem')
+const claimBtn = document.getElementById('claimBtn')
+
+let idleRunning = true
+let spinning = false
+let currentOffset = 0
+let idleFrame = null
+let spinFrame = null
+let currentCase = { key: 'angel', name: 'Angel Case', price: 1 }
+
+const giftsByCase = {
   angel: [
-    { name: 'Small Gift', rarity: 'common' },
-    { name: 'Angel Feather', rarity: 'common' },
-    { name: 'Golden Wing', rarity: 'rare' },
-    { name: 'Divine Halo', rarity: 'epic' },
-    { name: 'Angel Crown', rarity: 'legendary' }
+    { name: 'Small Gift', class: 'common' },
+    { name: 'Angel Feather', class: 'common' },
+    { name: 'Golden Wing', class: 'rare' },
+    { name: 'Heaven Box', class: 'rare' },
+    { name: 'Divine Halo', class: 'epic' },
+    { name: 'Angel Crown', class: 'legendary' }
   ],
   heaven: [
-    { name: 'Sky Gift', rarity: 'rare' },
-    { name: 'Holy Box', rarity: 'rare' },
-    { name: 'Saint Relic', rarity: 'epic' },
-    { name: 'Heaven Crown', rarity: 'legendary' }
+    { name: 'Silver Halo', class: 'common' },
+    { name: 'Sky Gift', class: 'rare' },
+    { name: 'Holy Box', class: 'rare' },
+    { name: 'Saint Relic', class: 'epic' },
+    { name: 'Heaven Crown', class: 'legendary' }
   ],
   divine: [
-    { name: 'Sacred Gift', rarity: 'rare' },
-    { name: 'Divine Feather', rarity: 'epic' },
-    { name: 'Light Relic', rarity: 'epic' },
-    { name: 'Celestial Crown', rarity: 'legendary' }
+    { name: 'Sacred Gift', class: 'rare' },
+    { name: 'Divine Feather', class: 'epic' },
+    { name: 'Light Relic', class: 'epic' },
+    { name: 'Celestial Crown', class: 'legendary' }
   ]
-};
-
-function run(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
 }
 
-function get(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+const appState = {
+  balance: 0,
+  wallet: '',
+  userId: '',
+  userName: 'Гость'
 }
 
-async function ensureUser(telegramId, username = '') {
-  await run(
-    `INSERT OR IGNORE INTO users (telegram_id, username) VALUES (?, ?)`,
-    [telegramId, username]
-  );
+function updateUI() {
+  balanceValue.textContent = `${Number(appState.balance || 0).toFixed(2)} TON`
+  telegramName.textContent = appState.userName
+  telegramId.textContent = appState.userId || '—'
+  walletValue.textContent = appState.wallet || 'Не подключён'
 }
 
-app.get('/', (req, res) => {
-  res.json({ ok: true, message: 'AngelCase backend is running' });
-});
-
-app.get('/health', (req, res) => {
-  res.json({ ok: true });
-});
-
-app.get('/api/profile/:telegramId', async (req, res) => {
-  try {
-    await ensureUser(req.params.telegramId);
-    const user = await get(
-      `SELECT * FROM users WHERE telegram_id = ?`,
-      [req.params.telegramId]
-    );
-    res.json(user);
-  } catch (error) {
-    console.error('profile_error:', error);
-    res.status(500).json({ error: 'profile_error' });
+function initTelegramUser() {
+  const user = tg?.initDataUnsafe?.user
+  if (!user) {
+    updateUI()
+    return
   }
-});
 
-app.post('/api/profile/bind-wallet', async (req, res) => {
-  const { telegramId, username, wallet } = req.body;
+  appState.userId = String(user.id || '')
+  appState.userName = user.username
+    ? `@${user.username}`
+    : [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Пользователь'
 
-  if (!telegramId || !wallet) {
-    return res.status(400).json({ error: 'telegramId_and_wallet_required' });
-  }
+  updateUI()
+}
+
+async function fetchProfile() {
+  if (!appState.userId) return
 
   try {
-    await ensureUser(telegramId, username || '');
-    await run(
-      `UPDATE users
-       SET wallet_address = ?, username = COALESCE(NULLIF(?, ''), username)
-       WHERE telegram_id = ?`,
-      [wallet, username || '', telegramId]
-    );
+    const res = await fetch(`${API_BASE}/api/profile/${appState.userId}`)
+    const data = await res.json()
 
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('bind_wallet_error:', error);
-    res.status(500).json({ error: 'bind_wallet_error' });
-  }
-});
-
-app.post('/api/deposits/create', async (req, res) => {
-  const { telegramId, username, amount } = req.body;
-  const parsedAmount = Number(amount);
-
-  if (!telegramId || !parsedAmount || parsedAmount <= 0) {
-    return res.status(400).json({ error: 'invalid_deposit_data' });
-  }
-
-  const orderId = crypto.randomUUID();
-  const comment = `ANGELCASE:${orderId}`;
-
-  try {
-    await ensureUser(telegramId, username || '');
-    await run(
-      `INSERT INTO deposits
-       (order_id, telegram_id, amount, receiver_wallet, comment, status)
-       VALUES (?, ?, ?, ?, ?, 'created')`,
-      [orderId, telegramId, parsedAmount, RECEIVER_WALLET, comment]
-    );
-
-    res.json({
-      ok: true,
-      orderId,
-      amount: parsedAmount,
-      receiverWallet: RECEIVER_WALLET,
-      comment,
-      status: 'created'
-    });
-  } catch (error) {
-    console.error('deposit_create_error:', error);
-    res.status(500).json({ error: 'deposit_create_error' });
-  }
-});
-
-app.get('/api/deposits/:orderId', async (req, res) => {
-  try {
-    const deposit = await get(
-      `SELECT order_id, amount, status, comment, confirmed_at
-       FROM deposits
-       WHERE order_id = ?`,
-      [req.params.orderId]
-    );
-
-    if (!deposit) {
-      return res.status(404).json({ error: 'deposit_not_found' });
+    if (!res.ok) {
+      console.error('profile_error', data)
+      return
     }
 
-    res.json(deposit);
-  } catch (error) {
-    console.error('deposit_status_error:', error);
-    res.status(500).json({ error: 'deposit_status_error' });
+    appState.balance = Number(data.balance || 0)
+    appState.wallet = data.wallet_address || ''
+    updateUI()
+  } catch (e) {
+    console.error('fetchProfile error:', e)
   }
-});
+}
 
-/*
-  Временная ручка для тестового начисления без проверки блокчейна.
-  Позже заменим на реальную проверку TON-транзакции.
-*/
-app.post('/api/deposits/confirm-demo', async (req, res) => {
-  const { orderId } = req.body;
+function showPage(page) {
+  casesPage.classList.remove('active')
+  profilePage.classList.remove('active')
+  roulettePage.classList.remove('active')
 
-  if (!orderId) {
-    return res.status(400).json({ error: 'orderId_required' });
+  navCases.classList.remove('active')
+  navProfile.classList.remove('active')
+
+  if (page === 'cases') {
+    casesPage.classList.add('active')
+    navCases.classList.add('active')
+    pageSubtitle.textContent = 'Кейсы'
+  }
+
+  if (page === 'profile') {
+    profilePage.classList.add('active')
+    navProfile.classList.add('active')
+    pageSubtitle.textContent = 'Профиль'
+  }
+
+  if (page === 'roulette') {
+    roulettePage.classList.add('active')
+    pageSubtitle.textContent = currentCase.name
+  }
+}
+
+function buildCommentPayload(text) {
+  const encoder = new TextEncoder()
+  const textBytes = encoder.encode(text)
+  const payload = new Uint8Array(4 + textBytes.length)
+
+  payload[0] = 0
+  payload[1] = 0
+  payload[2] = 0
+  payload[3] = 0
+  payload.set(textBytes, 4)
+
+  let binary = ''
+  payload.forEach(b => {
+    binary += String.fromCharCode(b)
+  })
+
+  return btoa(binary)
+}
+
+async function payTon() {
+  const amount = Number(topupAmount.value)
+
+  if (!tonConnectUI.account?.address) {
+    alert('Сначала подключи TON-кошелёк')
+    return
+  }
+
+  if (!amount || amount <= 0) {
+    alert('Введите сумму')
+    return
+  }
+
+  if (!appState.userId) {
+    alert('Не удалось получить Telegram ID')
+    return
   }
 
   try {
-    const deposit = await get(
-      `SELECT * FROM deposits WHERE order_id = ?`,
-      [orderId]
-    );
+    const createRes = await fetch(`${API_BASE}/api/deposits/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telegramId: appState.userId,
+        username: appState.userName,
+        amount
+      })
+    })
 
-    if (!deposit) {
-      return res.status(404).json({ error: 'deposit_not_found' });
+    const order = await createRes.json()
+
+    if (!createRes.ok) {
+      alert(order.error || 'Не удалось создать пополнение')
+      return
     }
 
-    if (deposit.status === 'confirmed') {
-      return res.json({ ok: true, alreadyConfirmed: true });
+    const tx = {
+      validUntil: Math.floor(Date.now() / 1000) + 300,
+      messages: [
+        {
+          address: RECEIVER_WALLET,
+          amount: String(Math.round(amount * 1_000_000_000)),
+          payload: buildCommentPayload(order.comment)
+        }
+      ]
     }
 
-    await run(
-      `UPDATE deposits
-       SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP
-       WHERE order_id = ?`,
-      [orderId]
-    );
+    await tonConnectUI.sendTransaction(tx)
 
-    await run(
-      `UPDATE users
-       SET balance = balance + ?
-       WHERE telegram_id = ?`,
-      [deposit.amount, deposit.telegram_id]
-    );
+    depositInfo.textContent =
+      `Платёж отправлен.\n` +
+      `Заказ: ${order.orderId}\n` +
+      `Сумма: ${amount} TON\n` +
+      `Комментарий: ${order.comment}\n\n` +
+      `Сейчас backend уже получил заказ.\n` +
+      `Следующий шаг — подключим реальную проверку TON-транзакции\n` +
+      `и автозачисление без confirm-demo.`
 
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('deposit_confirm_error:', error);
-    res.status(500).json({ error: 'deposit_confirm_error' });
+    topupAmount.value = ''
+  } catch (e) {
+    console.error('payTon error:', e)
+    depositInfo.textContent = 'Платёж был отменён или кошелёк вернул ошибку.'
   }
-});
+}
 
-app.post('/api/cases/open', async (req, res) => {
-  const { telegramId, username, caseKey, price } = req.body;
-  const parsedPrice = Number(price);
-  const pool = casePools[caseKey] || casePools.angel;
+function createItem(gift) {
+  const div = document.createElement('div')
+  div.className = 'item ' + gift.class
+  div.innerText = gift.name
+  return div
+}
 
-  if (!telegramId || !parsedPrice || parsedPrice <= 0) {
-    return res.status(400).json({ error: 'invalid_case_request' });
+function randomGift() {
+  const pool = giftsByCase[currentCase.key] || giftsByCase.angel
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
+function fillItems(count = 140) {
+  itemsContainer.innerHTML = ''
+  for (let i = 0; i < count; i++) {
+    itemsContainer.appendChild(createItem(randomGift()))
+  }
+}
+
+function appendMoreItems(count = 100) {
+  for (let i = 0; i < count; i++) {
+    itemsContainer.appendChild(createItem(randomGift()))
+  }
+}
+
+function setOffset(value) {
+  currentOffset = value
+  itemsContainer.style.transform = `translate3d(-${currentOffset}px, 0, 0)`
+}
+
+function idleAnimation() {
+  if (!idleRunning) return
+
+  setOffset(currentOffset + 0.45)
+
+  if (itemsContainer.children.length < 180) {
+    appendMoreItems(100)
+  }
+
+  idleFrame = requestAnimationFrame(idleAnimation)
+}
+
+function getSpinDuration() {
+  if (!isNaN(spinSound.duration) && spinSound.duration > 0) {
+    return {
+      soundDuration: spinSound.duration,
+      totalDuration: spinSound.duration + 1
+    }
+  }
+
+  return {
+    soundDuration: 5,
+    totalDuration: 6
+  }
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3)
+}
+
+function findWinningItem() {
+  const marker = document.querySelector('.marker')
+  const markerRect = marker.getBoundingClientRect()
+  const markerX = markerRect.left + markerRect.width / 2
+
+  const items = document.querySelectorAll('.item')
+  let winItem = null
+
+  items.forEach(item => {
+    const rect = item.getBoundingClientRect()
+    if (rect.left <= markerX && rect.right >= markerX) {
+      winItem = item
+    }
+  })
+
+  return winItem
+}
+
+function showWinPopup(prize) {
+  popupItem.textContent = prize
+  winPopup.style.display = 'flex'
+}
+
+function finishSpin() {
+  spinSound.pause()
+  spinSound.currentTime = 0
+
+  const winItem = findWinningItem()
+  if (winItem) {
+    showWinPopup(winItem.innerText)
+  }
+
+  spinning = false
+  idleRunning = true
+  idleAnimation()
+}
+
+function startSpinAnimation() {
+  if (spinning) return
+
+  spinning = true
+  idleRunning = false
+
+  if (idleFrame) {
+    cancelAnimationFrame(idleFrame)
+    idleFrame = null
+  }
+
+  if (spinFrame) {
+    cancelAnimationFrame(spinFrame)
+    spinFrame = null
+  }
+
+  if (itemsContainer.children.length < 300) {
+    appendMoreItems(220)
+  }
+
+  spinSound.pause()
+  spinSound.currentTime = 0
+  spinSound.play().catch(() => {})
+
+  const timing = getSpinDuration()
+  const soundDuration = timing.soundDuration
+  const totalDuration = timing.totalDuration
+
+  const startOffset = currentOffset
+  const pixelsPerSecond = 950
+  const extraTravel = 1100 + Math.random() * 350
+  const totalTravel = (pixelsPerSecond * soundDuration) + extraTravel
+
+  const startTime = performance.now()
+
+  function animateSpin(now) {
+    const elapsed = (now - startTime) / 1000
+    const progress = Math.min(elapsed / totalDuration, 1)
+    const eased = easeOutCubic(progress)
+
+    const newOffset = startOffset + totalTravel * eased
+    setOffset(newOffset)
+
+    if (itemsContainer.children.length < 220) {
+      appendMoreItems(120)
+    }
+
+    if (elapsed >= soundDuration && !spinSound.paused) {
+      spinSound.pause()
+    }
+
+    if (progress < 1) {
+      spinFrame = requestAnimationFrame(animateSpin)
+    } else {
+      finishSpin()
+    }
+  }
+
+  spinFrame = requestAnimationFrame(animateSpin)
+}
+
+async function openCaseRequest(caseKey, price) {
+  if (!appState.userId) {
+    alert('Не удалось получить Telegram ID')
+    return false
   }
 
   try {
-    await ensureUser(telegramId, username || '');
-    const user = await get(
-      `SELECT * FROM users WHERE telegram_id = ?`,
-      [telegramId]
-    );
+    const res = await fetch(`${API_BASE}/api/cases/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telegramId: appState.userId,
+        username: appState.userName,
+        caseKey,
+        price
+      })
+    })
 
-    if (!user) {
-      return res.status(404).json({ error: 'user_not_found' });
+    const data = await res.json()
+
+    if (!res.ok) {
+      alert(data.error || 'Ошибка открытия кейса')
+      return false
     }
 
-    if (Number(user.balance) < parsedPrice) {
-      return res.status(400).json({ error: 'not_enough_balance' });
-    }
-
-    const prize = pool[Math.floor(Math.random() * pool.length)];
-
-    await run(
-      `UPDATE users
-       SET balance = balance - ?
-       WHERE telegram_id = ?`,
-      [parsedPrice, telegramId]
-    );
-
-    await run(
-      `INSERT INTO inventory (telegram_id, item_name, rarity)
-       VALUES (?, ?, ?)`,
-      [telegramId, prize.name, prize.rarity]
-    );
-
-    const updatedUser = await get(
-      `SELECT balance FROM users WHERE telegram_id = ?`,
-      [telegramId]
-    );
-
-    res.json({
-      ok: true,
-      prize: prize.name,
-      rarity: prize.rarity,
-      newBalance: updatedUser.balance
-    });
-  } catch (error) {
-    console.error('case_open_error:', error);
-    res.status(500).json({ error: 'case_open_error' });
+    appState.balance = Number(data.newBalance || 0)
+    updateUI()
+    return true
+  } catch (e) {
+    console.error('openCaseRequest error:', e)
+    alert('Ошибка соединения с backend')
+    return false
   }
-});
+}
 
-app.use((req, res) => {
-  res.status(404).json({ error: 'not_found' });
-});
+function openCaseScreen(caseKey, caseName, casePrice) {
+  currentCase = {
+    key: caseKey,
+    name: caseName,
+    price: Number(casePrice)
+  }
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`AngelCase backend running on port ${PORT}`);
-});
+  rouletteCaseName.textContent = `${caseName} • ${casePrice} TON`
+  currentOffset = 0
+  fillItems()
+  showPage('roulette')
+}
+
+document.querySelectorAll('.case-open-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const card = btn.closest('.case-card')
+    const caseName = card.querySelector('.case-name').textContent
+    openCaseScreen(btn.dataset.case, caseName, btn.dataset.price)
+  })
+})
+
+navCases.addEventListener('click', () => showPage('cases'))
+navProfile.addEventListener('click', () => showPage('profile'))
+backToCasesBtn.addEventListener('click', () => showPage('cases'))
+payTonBtn.addEventListener('click', payTon)
+
+openCaseBtn.addEventListener('click', async () => {
+  const ok = await openCaseRequest(currentCase.key, currentCase.price)
+  if (ok) {
+    startSpinAnimation()
+  }
+})
+
+claimBtn.addEventListener('click', () => {
+  winPopup.style.display = 'none'
+})
+
+tonConnectUI.onStatusChange(async wallet => {
+  try {
+    if (wallet?.account?.address) {
+      appState.wallet = wallet.account.address
+      updateUI()
+
+      if (appState.userId) {
+        await fetch(`${API_BASE}/api/profile/bind-wallet`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            telegramId: appState.userId,
+            username: appState.userName,
+            wallet: wallet.account.address
+          })
+        })
+
+        await fetchProfile()
+      }
+    } else {
+      appState.wallet = ''
+      updateUI()
+    }
+  } catch (e) {
+    console.error('bind wallet error:', e)
+  }
+})
+
+initTelegramUser()
+fetchProfile()
+updateUI()
+fillItems()
+showPage('cases')
+
+if (spinSound.readyState >= 1) {
+  idleAnimation()
+} else {
+  spinSound.addEventListener(
+    'loadedmetadata',
+    () => {
+      if (!idleFrame && !spinning) {
+        idleAnimation()
+      }
+    },
+    { once: true }
+  )
+
+  setTimeout(() => {
+    if (!idleFrame && !spinning) {
+      idleAnimation()
+    }
+  }, 500)
+}
