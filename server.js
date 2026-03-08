@@ -46,10 +46,6 @@ const casePools = {
   ]
 };
 
-function log(...args) {
-  console.log('[AngelCase]', ...args);
-}
-
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -109,54 +105,22 @@ async function fetchRecentReceiverTransactionsV2() {
     headers['X-API-Key'] = TONCENTER_API_KEY;
   }
 
-  log('TX_FETCH_V2 start', {
-    account: RECEIVER_WALLET,
-    hasApiKey: Boolean(TONCENTER_API_KEY)
-  });
-
   const res = await fetch(url, { headers });
   const text = await res.text();
 
   if (!res.ok) {
-    log('TX_FETCH_V2 failed', res.status, text);
-    throw new Error(`toncenter_v2_error_${res.status}`);
+    throw new Error(`toncenter_v2_error_${res.status}: ${text}`);
   }
 
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (e) {
-    log('TX_FETCH_V2 invalid JSON', text);
-    throw e;
-  }
+  const data = JSON.parse(text);
 
-  let txs = [];
-  if (Array.isArray(data)) {
-    txs = data;
-  } else if (Array.isArray(data.result)) {
-    txs = data.result;
-  } else {
-    txs = [];
-  }
-
-  log('TX_FETCH_V2 success', `got ${txs.length} txs`);
-  return txs;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.result)) return data.result;
+  return [];
 }
 
 function getIncomingValueNano(tx) {
   return String(tx?.in_msg?.value || '');
-}
-
-function getIncomingSource(tx) {
-  return String(tx?.in_msg?.source || '');
-}
-
-function getIncomingDestination(tx) {
-  return String(tx?.in_msg?.destination || '');
-}
-
-function getIncomingMessageText(tx) {
-  return String(tx?.in_msg?.msg_data?.message || '');
 }
 
 function isRealIncomingDeposit(tx) {
@@ -168,15 +132,7 @@ function isRealIncomingDeposit(tx) {
 
 async function confirmDeposit(orderId, txHash) {
   const deposit = await get(`SELECT * FROM deposits WHERE order_id = ?`, [orderId]);
-  if (!deposit) {
-    log('CONFIRM skipped, deposit not found', orderId);
-    return;
-  }
-
-  if (deposit.status === 'confirmed') {
-    log('CONFIRM skipped, already confirmed', orderId);
-    return;
-  }
+  if (!deposit || deposit.status === 'confirmed') return;
 
   await run(
     `UPDATE deposits
@@ -191,60 +147,23 @@ async function confirmDeposit(orderId, txHash) {
      WHERE telegram_id = ?`,
     [deposit.amount, deposit.telegram_id]
   );
-
-  log('CONFIRM success', {
-    orderId,
-    txHash,
-    telegramId: deposit.telegram_id,
-    creditedAmount: deposit.amount
-  });
 }
 
 async function scanDeposits() {
   try {
     const pending = await all(
       `SELECT * FROM deposits
-       WHERE status IN ('created', 'sent')
+       WHERE status IN ('created')
        ORDER BY created_at DESC
        LIMIT 100`
     );
 
-    if (!pending.length) {
-      log('SCAN no pending deposits');
-      return;
-    }
-
-    log(
-      'SCAN pending deposits',
-      pending.map(d => ({
-        orderId: d.order_id,
-        status: d.status,
-        amount: d.amount,
-        exactNano: d.comment
-      }))
-    );
+    if (!pending.length) return;
 
     const txs = await fetchRecentReceiverTransactionsV2();
 
-    txs.slice(0, 10).forEach((tx, index) => {
-      log(`SCAN tx[${index}]`, {
-        hash: tx?.transaction_id?.hash || '',
-        valueNano: getIncomingValueNano(tx),
-        source: getIncomingSource(tx),
-        destination: getIncomingDestination(tx),
-        message: getIncomingMessageText(tx),
-        isRealIncoming: isRealIncomingDeposit(tx)
-      });
-    });
-
     for (const deposit of pending) {
       const expectedNano = String(deposit.comment || '');
-
-      log('SCAN checking deposit', {
-        orderId: deposit.order_id,
-        expectedExactNano: expectedNano,
-        expectedAmountTon: deposit.amount
-      });
 
       const match = txs.find(tx => {
         if (!isRealIncomingDeposit(tx)) return false;
@@ -254,19 +173,11 @@ async function scanDeposits() {
 
       if (match) {
         const txHash = String(match?.transaction_id?.hash || '');
-        log('SCAN MATCH FOUND', {
-          orderId: deposit.order_id,
-          txHash,
-          valueNano: getIncomingValueNano(match)
-        });
-
         await confirmDeposit(deposit.order_id, txHash);
-      } else {
-        log('SCAN no match for deposit', deposit.order_id);
       }
     }
   } catch (error) {
-    log('SCAN ERROR', error.message);
+    console.error('scanDeposits error:', error.message);
   }
 }
 
@@ -287,8 +198,24 @@ app.get('/api/profile/:telegramId', async (req, res) => {
     );
     res.json(user);
   } catch (error) {
-    log('profile_error', error.message);
     res.status(500).json({ error: 'profile_error' });
+  }
+});
+
+app.get('/api/inventory/:telegramId', async (req, res) => {
+  try {
+    await ensureUser(req.params.telegramId);
+    const items = await all(
+      `SELECT id, telegram_id, item_name, rarity, created_at
+       FROM inventory
+       WHERE telegram_id = ?
+       ORDER BY id DESC`,
+      [req.params.telegramId]
+    );
+
+    res.json({ items });
+  } catch (error) {
+    res.status(500).json({ error: 'inventory_error' });
   }
 });
 
@@ -308,10 +235,8 @@ app.post('/api/profile/bind-wallet', async (req, res) => {
       [wallet, username || '', telegramId]
     );
 
-    log('BIND WALLET success', { telegramId, wallet });
     res.json({ ok: true });
   } catch (error) {
-    log('bind_wallet_error', error.message);
     res.status(500).json({ error: 'bind_wallet_error' });
   }
 });
@@ -337,14 +262,6 @@ app.post('/api/deposits/create', async (req, res) => {
       [orderId, telegramId, exactAmount, RECEIVER_WALLET, exactNano]
     );
 
-    log('DEPOSIT CREATED', {
-      orderId,
-      telegramId,
-      requestedAmount: parsedAmount,
-      exactAmount,
-      exactNano
-    });
-
     res.json({
       ok: true,
       orderId,
@@ -355,31 +272,7 @@ app.post('/api/deposits/create', async (req, res) => {
       status: 'created'
     });
   } catch (error) {
-    log('deposit_create_error', error.message);
     res.status(500).json({ error: 'deposit_create_error' });
-  }
-});
-
-app.post('/api/deposits/mark-sent', async (req, res) => {
-  const { orderId, senderWallet } = req.body;
-
-  if (!orderId) {
-    return res.status(400).json({ error: 'orderId_required' });
-  }
-
-  try {
-    await run(
-      `UPDATE deposits
-       SET status = 'sent', sender_wallet = ?
-       WHERE order_id = ?`,
-      [senderWallet || '', orderId]
-    );
-
-    log('DEPOSIT MARK SENT', { orderId, senderWallet: senderWallet || '' });
-    res.json({ ok: true });
-  } catch (error) {
-    log('mark_sent_error', error.message);
-    res.status(500).json({ error: 'mark_sent_error' });
   }
 });
 
@@ -398,7 +291,6 @@ app.get('/api/deposits/:orderId', async (req, res) => {
 
     res.json(deposit);
   } catch (error) {
-    log('deposit_status_error', error.message);
     res.status(500).json({ error: 'deposit_status_error' });
   }
 });
@@ -447,14 +339,6 @@ app.post('/api/cases/open', async (req, res) => {
       [telegramId]
     );
 
-    log('CASE OPEN success', {
-      telegramId,
-      caseKey,
-      price: parsedPrice,
-      prize: prize.name,
-      newBalance: updatedUser.balance
-    });
-
     res.json({
       ok: true,
       prize: prize.name,
@@ -462,7 +346,6 @@ app.post('/api/cases/open', async (req, res) => {
       newBalance: updatedUser.balance
     });
   } catch (error) {
-    log('case_open_error', error.message);
     res.status(500).json({ error: 'case_open_error' });
   }
 });
@@ -476,10 +359,5 @@ setInterval(() => {
 }, 10000);
 
 app.listen(PORT, '0.0.0.0', () => {
-  log(`Backend running on port ${PORT}`);
-  log('ENV', {
-    FRONTEND_ORIGIN,
-    RECEIVER_WALLET,
-    hasToncenterApiKey: Boolean(TONCENTER_API_KEY)
-  });
+  console.log(`AngelCase backend running on port ${PORT}`);
 });
