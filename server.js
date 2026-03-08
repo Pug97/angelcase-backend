@@ -12,6 +12,9 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'https://pug97.github.io'
 const RECEIVER_WALLET =
   process.env.RECEIVER_WALLET || 'UQBwcw41wYAnPcQuHFtB9a_khXQLQR3LUCq5hMsyyQGuj37k';
 
+const TONCENTER_API_KEY = process.env.TONCENTER_API_KEY || '';
+const TONCENTER_BASE = 'https://toncenter.com/api/v3';
+
 app.use(
   cors({
     origin: FRONTEND_ORIGIN,
@@ -61,11 +64,103 @@ function get(sql, params = []) {
   });
 }
 
+function all(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
+
 async function ensureUser(telegramId, username = '') {
   await run(
     `INSERT OR IGNORE INTO users (telegram_id, username) VALUES (?, ?)`,
     [telegramId, username]
   );
+}
+
+function buildExactNano(baseTon) {
+  const baseNano = Math.round(Number(baseTon) * 1_000_000_000);
+  const randomNanoSuffix = crypto.randomInt(100_000, 999_999);
+  return String(baseNano + randomNanoSuffix);
+}
+
+function nanoToTonString(nanoString) {
+  return (Number(nanoString) / 1_000_000_000).toFixed(6);
+}
+
+async function fetchRecentReceiverTransactions() {
+  const url = new URL(`${TONCENTER_BASE}/transactions`);
+  url.searchParams.set('account', RECEIVER_WALLET);
+  url.searchParams.set('limit', '100');
+  url.searchParams.set('sort', 'desc');
+
+  const headers = {};
+  if (TONCENTER_API_KEY) {
+    headers['X-API-Key'] = TONCENTER_API_KEY;
+  }
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    throw new Error(`toncenter_error_${res.status}`);
+  }
+
+  const data = await res.json();
+  return Array.isArray(data.transactions) ? data.transactions : [];
+}
+
+function isRealIncomingDeposit(tx) {
+  if (!tx || tx.description?.type !== 'ord') return false;
+  if (tx?.in_msg?.created_lt === null || tx?.in_msg?.created_lt === undefined) return false;
+
+  const bouncePhase = tx?.description?.bounce;
+  if (bouncePhase && bouncePhase.type === 'ok') return false;
+
+  return true;
+}
+
+async function confirmDeposit(orderId, txHash) {
+  const deposit = await get(`SELECT * FROM deposits WHERE order_id = ?`, [orderId]);
+  if (!deposit || deposit.status === 'confirmed') return;
+
+  await run(
+    `UPDATE deposits
+     SET status = 'confirmed', tx_hash = ?, confirmed_at = CURRENT_TIMESTAMP
+     WHERE order_id = ?`,
+    [txHash, orderId]
+  );
+
+  await run(
+    `UPDATE users
+     SET balance = balance + ?
+     WHERE telegram_id = ?`,
+    [deposit.amount, deposit.telegram_id]
+  );
+}
+
+async function scanDeposits() {
+  const pending = await all(
+    `SELECT * FROM deposits WHERE status IN ('created', 'sent') ORDER BY created_at DESC LIMIT 100`
+  );
+
+  if (!pending.length) return;
+
+  const txs = await fetchRecentReceiverTransactions();
+
+  for (const deposit of pending) {
+    const exactNano = String(deposit.comment || '');
+
+    const match = txs.find(tx => {
+      if (!isRealIncomingDeposit(tx)) return false;
+      const inValue = String(tx?.in_msg?.value || '');
+      return inValue === exactNano;
+    });
+
+    if (match) {
+      await confirmDeposit(deposit.order_id, match.hash || '');
+    }
+  }
 }
 
 app.get('/', (req, res) => {
@@ -122,7 +217,8 @@ app.post('/api/deposits/create', async (req, res) => {
   }
 
   const orderId = crypto.randomUUID();
-  const comment = `ANGELCASE:${orderId}`;
+  const exactNano = buildExactNano(parsedAmount);
+  const exactAmount = Number(nanoToTonString(exactNano));
 
   try {
     await ensureUser(telegramId, username || '');
@@ -130,15 +226,16 @@ app.post('/api/deposits/create', async (req, res) => {
       `INSERT INTO deposits
        (order_id, telegram_id, amount, receiver_wallet, comment, status)
        VALUES (?, ?, ?, ?, ?, 'created')`,
-      [orderId, telegramId, parsedAmount, RECEIVER_WALLET, comment]
+      [orderId, telegramId, exactAmount, RECEIVER_WALLET, exactNano]
     );
 
     res.json({
       ok: true,
       orderId,
-      amount: parsedAmount,
+      requestedAmount: parsedAmount,
+      exactAmount,
+      exactNano,
       receiverWallet: RECEIVER_WALLET,
-      comment,
       status: 'created'
     });
   } catch (error) {
@@ -150,7 +247,7 @@ app.post('/api/deposits/create', async (req, res) => {
 app.get('/api/deposits/:orderId', async (req, res) => {
   try {
     const deposit = await get(
-      `SELECT order_id, amount, status, comment, confirmed_at
+      `SELECT order_id, amount, status, confirmed_at
        FROM deposits
        WHERE order_id = ?`,
       [req.params.orderId]
@@ -164,48 +261,6 @@ app.get('/api/deposits/:orderId', async (req, res) => {
   } catch (error) {
     console.error('deposit_status_error:', error);
     res.status(500).json({ error: 'deposit_status_error' });
-  }
-});
-
-app.post('/api/deposits/confirm-demo', async (req, res) => {
-  const { orderId } = req.body;
-
-  if (!orderId) {
-    return res.status(400).json({ error: 'orderId_required' });
-  }
-
-  try {
-    const deposit = await get(
-      `SELECT * FROM deposits WHERE order_id = ?`,
-      [orderId]
-    );
-
-    if (!deposit) {
-      return res.status(404).json({ error: 'deposit_not_found' });
-    }
-
-    if (deposit.status === 'confirmed') {
-      return res.json({ ok: true, alreadyConfirmed: true });
-    }
-
-    await run(
-      `UPDATE deposits
-       SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP
-       WHERE order_id = ?`,
-      [orderId]
-    );
-
-    await run(
-      `UPDATE users
-       SET balance = balance + ?
-       WHERE telegram_id = ?`,
-      [deposit.amount, deposit.telegram_id]
-    );
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('deposit_confirm_error:', error);
-    res.status(500).json({ error: 'deposit_confirm_error' });
   }
 });
 
@@ -268,6 +323,12 @@ app.post('/api/cases/open', async (req, res) => {
 app.use((req, res) => {
   res.status(404).json({ error: 'not_found' });
 });
+
+setInterval(() => {
+  scanDeposits().catch(err => {
+    console.error('scanDeposits error:', err.message);
+  });
+}, 10000);
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`AngelCase backend running on port ${PORT}`);
