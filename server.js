@@ -58,6 +58,38 @@ async function ensureUser(telegramId, username = '') {
   );
 }
 
+async function seedSunnyCase() {
+  await run(`DELETE FROM case_drops`);
+  await run(`DELETE FROM cases`);
+
+  await run(
+    `INSERT INTO cases
+      (case_key, title, subtitle, price_ton, image, rtp_target, is_active, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, 1, 1)`,
+    ['sunny_case', 'Sunny', 'кейс для самых ярких', 0.5, '🌞', 0.7068]
+  );
+
+  const drops = [
+    ['sunny_case', 'sunny_rose', 'Rose', 'gift', 'common', 0.20, 84.6, '🌹', 1, 1, 1],
+    ['sunny_case', 'sunny_ton_040', '0.40 TON', 'ton_balance', 'common', 0.40, 8.0, '💎', 0, 0, 1],
+    ['sunny_case', 'sunny_ring', 'Ring', 'gift', 'epic', 0.70, 4.0, '💍', 1, 1, 1],
+    ['sunny_case', 'sunny_trophy', 'Trophy', 'gift', 'epic', 1.00, 0.8, '🏆', 1, 1, 1],
+    ['sunny_case', 'sunny_ramen', 'Ramen', 'gift', 'legendary', 3.96, 1.0, '🍜', 1, 1, 1],
+    ['sunny_case', 'sunny_ice_cream', 'Ice Cream', 'gift', 'legendary', 4.00, 1.0, '🍦', 1, 1, 1],
+    ['sunny_case', 'sunny_happy_brownie', 'Happy Brownie', 'gift', 'legendary', 4.26, 0.5, '💩', 1, 1, 1],
+    ['sunny_case', 'sunny_love_potion', 'Love Potion', 'gift', 'mythical', 15.32, 0.1, '🍾', 1, 1, 1]
+  ];
+
+  for (const drop of drops) {
+    await run(
+      `INSERT INTO case_drops
+        (case_key, item_key, item_name, item_type, rarity, ton_value, weight, image, can_sell, can_withdraw, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      drop
+    );
+  }
+}
+
 function buildExactNano(baseTon) {
   const baseNano = Math.round(Number(baseTon) * 1_000_000_000);
   const randomNanoSuffix = crypto.randomInt(100000, 999999);
@@ -230,8 +262,7 @@ app.get('/api/cases', async (req, res) => {
         `SELECT item_name, item_type, rarity, ton_value, image
          FROM case_drops
          WHERE case_key = ? AND is_active = 1
-         ORDER BY weight DESC, ton_value ASC
-         LIMIT 8`,
+         ORDER BY ton_value ASC, id ASC`,
         [item.case_key]
       );
 
@@ -296,7 +327,10 @@ app.post('/api/inventory/sell', async (req, res) => {
       [item.ton_value, telegramId]
     );
 
-    const user = await get(`SELECT balance FROM users WHERE telegram_id = ?`, [telegramId]);
+    const user = await get(
+      `SELECT balance FROM users WHERE telegram_id = ?`,
+      [telegramId]
+    );
 
     res.json({
       ok: true,
@@ -420,7 +454,10 @@ app.post('/api/cases/open', async (req, res) => {
       return res.status(404).json({ error: 'case_not_found' });
     }
 
-    const user = await get(`SELECT * FROM users WHERE telegram_id = ?`, [telegramId]);
+    const user = await get(
+      `SELECT * FROM users WHERE telegram_id = ?`,
+      [telegramId]
+    );
 
     if (!user) {
       return res.status(404).json({ error: 'user_not_found' });
@@ -471,7 +508,10 @@ app.post('/api/cases/open', async (req, res) => {
       );
     }
 
-    const updatedUser = await get(`SELECT balance FROM users WHERE telegram_id = ?`, [telegramId]);
+    const updatedUser = await get(
+      `SELECT balance FROM users WHERE telegram_id = ?`,
+      [telegramId]
+    );
 
     res.json({
       ok: true,
@@ -492,10 +532,21 @@ app.use((req, res) => {
   res.status(404).json({ error: 'not_found' });
 });
 
-setInterval(() => {
-  scanDeposits();
-}, 10000);
+async function start() {
+  try {
+    await seedSunnyCase();
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`AngelCase backend running on port ${PORT}`);
-});
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`AngelCase backend running on port ${PORT}`);
+    });
+
+    setInterval(() => {
+      scanDeposits();
+    }, 10000);
+  } catch (error) {
+    console.error('startup_error:', error.message);
+    process.exit(1);
+  }
+}
+
+start();
