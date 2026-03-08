@@ -24,28 +24,6 @@ app.use(
 
 app.use(express.json());
 
-const casePools = {
-  angel: [
-    { name: 'Small Gift', rarity: 'common' },
-    { name: 'Angel Feather', rarity: 'common' },
-    { name: 'Golden Wing', rarity: 'rare' },
-    { name: 'Divine Halo', rarity: 'epic' },
-    { name: 'Angel Crown', rarity: 'legendary' }
-  ],
-  heaven: [
-    { name: 'Sky Gift', rarity: 'rare' },
-    { name: 'Holy Box', rarity: 'rare' },
-    { name: 'Saint Relic', rarity: 'epic' },
-    { name: 'Heaven Crown', rarity: 'legendary' }
-  ],
-  divine: [
-    { name: 'Sacred Gift', rarity: 'rare' },
-    { name: 'Divine Feather', rarity: 'epic' },
-    { name: 'Light Relic', rarity: 'epic' },
-    { name: 'Celestial Crown', rarity: 'legendary' }
-  ]
-};
-
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -181,6 +159,18 @@ async function scanDeposits() {
   }
 }
 
+function weightedPick(items) {
+  const total = items.reduce((sum, item) => sum + Number(item.weight || 0), 0);
+  let roll = Math.random() * total;
+
+  for (const item of items) {
+    roll -= Number(item.weight || 0);
+    if (roll <= 0) return item;
+  }
+
+  return items[items.length - 1];
+}
+
 app.get('/', (req, res) => {
   res.json({ ok: true, message: 'AngelCase backend is running' });
 });
@@ -197,25 +187,8 @@ app.get('/api/profile/:telegramId', async (req, res) => {
       [req.params.telegramId]
     );
     res.json(user);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'profile_error' });
-  }
-});
-
-app.get('/api/inventory/:telegramId', async (req, res) => {
-  try {
-    await ensureUser(req.params.telegramId);
-    const items = await all(
-      `SELECT id, telegram_id, item_name, rarity, created_at
-       FROM inventory
-       WHERE telegram_id = ?
-       ORDER BY id DESC`,
-      [req.params.telegramId]
-    );
-
-    res.json({ items });
-  } catch (error) {
-    res.status(500).json({ error: 'inventory_error' });
   }
 });
 
@@ -236,8 +209,141 @@ app.post('/api/profile/bind-wallet', async (req, res) => {
     );
 
     res.json({ ok: true });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'bind_wallet_error' });
+  }
+});
+
+app.get('/api/cases', async (req, res) => {
+  try {
+    const cases = await all(
+      `SELECT case_key, title, subtitle, price_ton, image, rtp_target
+       FROM cases
+       WHERE is_active = 1
+       ORDER BY sort_order ASC, id ASC`
+    );
+
+    const result = [];
+
+    for (const item of cases) {
+      const preview = await all(
+        `SELECT item_name, item_type, rarity, ton_value, image
+         FROM case_drops
+         WHERE case_key = ? AND is_active = 1
+         ORDER BY weight DESC, ton_value ASC
+         LIMIT 8`,
+        [item.case_key]
+      );
+
+      result.push({
+        ...item,
+        preview
+      });
+    }
+
+    res.json({ cases: result });
+  } catch {
+    res.status(500).json({ error: 'cases_error' });
+  }
+});
+
+app.get('/api/inventory/:telegramId', async (req, res) => {
+  try {
+    await ensureUser(req.params.telegramId);
+
+    const items = await all(
+      `SELECT id, telegram_id, item_key, item_name, item_type, rarity, ton_value, image, status, can_sell, can_withdraw, created_at
+       FROM inventory
+       WHERE telegram_id = ? AND status IN ('owned', 'withdraw_requested')
+       ORDER BY id DESC`,
+      [req.params.telegramId]
+    );
+
+    res.json({ items });
+  } catch {
+    res.status(500).json({ error: 'inventory_error' });
+  }
+});
+
+app.post('/api/inventory/sell', async (req, res) => {
+  const { telegramId, inventoryId } = req.body;
+
+  if (!telegramId || !inventoryId) {
+    return res.status(400).json({ error: 'invalid_sell_request' });
+  }
+
+  try {
+    const item = await get(
+      `SELECT * FROM inventory WHERE id = ? AND telegram_id = ?`,
+      [inventoryId, telegramId]
+    );
+
+    if (!item) {
+      return res.status(404).json({ error: 'item_not_found' });
+    }
+
+    if (item.status !== 'owned') {
+      return res.status(400).json({ error: 'item_not_sellable_status' });
+    }
+
+    if (Number(item.can_sell) !== 1) {
+      return res.status(400).json({ error: 'item_cannot_be_sold' });
+    }
+
+    await run(`UPDATE inventory SET status = 'sold' WHERE id = ?`, [inventoryId]);
+    await run(
+      `UPDATE users SET balance = balance + ? WHERE telegram_id = ?`,
+      [item.ton_value, telegramId]
+    );
+
+    const user = await get(`SELECT balance FROM users WHERE telegram_id = ?`, [telegramId]);
+
+    res.json({
+      ok: true,
+      soldFor: item.ton_value,
+      newBalance: user.balance
+    });
+  } catch {
+    res.status(500).json({ error: 'sell_error' });
+  }
+});
+
+app.post('/api/inventory/withdraw', async (req, res) => {
+  const { telegramId, inventoryId } = req.body;
+
+  if (!telegramId || !inventoryId) {
+    return res.status(400).json({ error: 'invalid_withdraw_request' });
+  }
+
+  try {
+    const item = await get(
+      `SELECT * FROM inventory WHERE id = ? AND telegram_id = ?`,
+      [inventoryId, telegramId]
+    );
+
+    if (!item) {
+      return res.status(404).json({ error: 'item_not_found' });
+    }
+
+    if (item.status !== 'owned') {
+      return res.status(400).json({ error: 'item_not_withdrawable_status' });
+    }
+
+    if (Number(item.can_withdraw) !== 1) {
+      return res.status(400).json({ error: 'item_cannot_be_withdrawn' });
+    }
+
+    await run(
+      `UPDATE inventory SET status = 'withdraw_requested' WHERE id = ?`,
+      [inventoryId]
+    );
+
+    res.json({
+      ok: true,
+      status: 'withdraw_requested'
+    });
+  } catch {
+    res.status(500).json({ error: 'withdraw_error' });
   }
 });
 
@@ -271,7 +377,7 @@ app.post('/api/deposits/create', async (req, res) => {
       receiverWallet: RECEIVER_WALLET,
       status: 'created'
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'deposit_create_error' });
   }
 });
@@ -290,62 +396,94 @@ app.get('/api/deposits/:orderId', async (req, res) => {
     }
 
     res.json(deposit);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'deposit_status_error' });
   }
 });
 
 app.post('/api/cases/open', async (req, res) => {
-  const { telegramId, username, caseKey, price } = req.body;
-  const parsedPrice = Number(price);
-  const pool = casePools[caseKey] || casePools.angel;
+  const { telegramId, username, caseKey } = req.body;
 
-  if (!telegramId || !parsedPrice || parsedPrice <= 0) {
+  if (!telegramId || !caseKey) {
     return res.status(400).json({ error: 'invalid_case_request' });
   }
 
   try {
     await ensureUser(telegramId, username || '');
-    const user = await get(
-      `SELECT * FROM users WHERE telegram_id = ?`,
-      [telegramId]
+
+    const caseData = await get(
+      `SELECT * FROM cases WHERE case_key = ? AND is_active = 1`,
+      [caseKey]
     );
+
+    if (!caseData) {
+      return res.status(404).json({ error: 'case_not_found' });
+    }
+
+    const user = await get(`SELECT * FROM users WHERE telegram_id = ?`, [telegramId]);
 
     if (!user) {
       return res.status(404).json({ error: 'user_not_found' });
     }
 
-    if (Number(user.balance) < parsedPrice) {
+    if (Number(user.balance) < Number(caseData.price_ton)) {
       return res.status(400).json({ error: 'not_enough_balance' });
     }
 
-    const prize = pool[Math.floor(Math.random() * pool.length)];
+    const drops = await all(
+      `SELECT * FROM case_drops
+       WHERE case_key = ? AND is_active = 1`,
+      [caseKey]
+    );
+
+    if (!drops.length) {
+      return res.status(400).json({ error: 'case_has_no_drops' });
+    }
+
+    const drop = weightedPick(drops);
 
     await run(
-      `UPDATE users
-       SET balance = balance - ?
-       WHERE telegram_id = ?`,
-      [parsedPrice, telegramId]
+      `UPDATE users SET balance = balance - ? WHERE telegram_id = ?`,
+      [caseData.price_ton, telegramId]
     );
 
-    await run(
-      `INSERT INTO inventory (telegram_id, item_name, rarity)
-       VALUES (?, ?, ?)`,
-      [telegramId, prize.name, prize.rarity]
-    );
+    if (drop.item_type === 'ton_balance') {
+      await run(
+        `UPDATE users SET balance = balance + ? WHERE telegram_id = ?`,
+        [drop.ton_value, telegramId]
+      );
+    } else {
+      await run(
+        `INSERT INTO inventory
+         (telegram_id, item_key, item_name, item_type, rarity, ton_value, image, status, can_sell, can_withdraw)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'owned', ?, ?)`,
+        [
+          telegramId,
+          drop.item_key,
+          drop.item_name,
+          drop.item_type,
+          drop.rarity,
+          drop.ton_value,
+          drop.image || '',
+          Number(drop.can_sell || 0),
+          Number(drop.can_withdraw || 0)
+        ]
+      );
+    }
 
-    const updatedUser = await get(
-      `SELECT balance FROM users WHERE telegram_id = ?`,
-      [telegramId]
-    );
+    const updatedUser = await get(`SELECT balance FROM users WHERE telegram_id = ?`, [telegramId]);
 
     res.json({
       ok: true,
-      prize: prize.name,
-      rarity: prize.rarity,
+      caseTitle: caseData.title,
+      prize: drop.item_name,
+      itemType: drop.item_type,
+      rarity: drop.rarity,
+      tonValue: drop.ton_value,
+      image: drop.image || '',
       newBalance: updatedUser.balance
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'case_open_error' });
   }
 });
