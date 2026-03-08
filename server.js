@@ -13,7 +13,7 @@ const RECEIVER_WALLET =
   process.env.RECEIVER_WALLET || 'UQBwcw41wYAnPcQuHFtB9a_khXQLQR3LUCq5hMsyyQGuj37k';
 
 const TONCENTER_API_KEY = process.env.TONCENTER_API_KEY || '';
-const TONCENTER_BASE = 'https://toncenter.com/api/v3';
+const TONCENTER_V2_BASE = 'https://toncenter.com/api/v2';
 
 app.use(
   cors({
@@ -94,20 +94,23 @@ function nanoToTonString(nanoString) {
   return (Number(nanoString) / 1_000_000_000).toFixed(6);
 }
 
-async function fetchRecentReceiverTransactions() {
-  const url = new URL(`${TONCENTER_BASE}/transactions`);
-  url.searchParams.set('account', RECEIVER_WALLET);
-  url.searchParams.set('limit', '100');
-  url.searchParams.set('sort', 'desc');
+async function fetchRecentReceiverTransactionsV2() {
+  const url = new URL(`${TONCENTER_V2_BASE}/getTransactions`);
+  url.searchParams.set('address', RECEIVER_WALLET);
+  url.searchParams.set('limit', '50');
+  url.searchParams.set('to_lt', '0');
+  url.searchParams.set('archival', 'true');
 
-  const headers = {};
+  const headers = {
+    accept: 'application/json'
+  };
+
   if (TONCENTER_API_KEY) {
     headers['X-API-Key'] = TONCENTER_API_KEY;
   }
 
-  log('TX_FETCH start', {
+  log('TX_FETCH_V2 start', {
     account: RECEIVER_WALLET,
-    limit: '100',
     hasApiKey: Boolean(TONCENTER_API_KEY)
   });
 
@@ -115,32 +118,51 @@ async function fetchRecentReceiverTransactions() {
   const text = await res.text();
 
   if (!res.ok) {
-    log('TX_FETCH failed', res.status, text);
-    throw new Error(`toncenter_error_${res.status}`);
+    log('TX_FETCH_V2 failed', res.status, text);
+    throw new Error(`toncenter_v2_error_${res.status}`);
   }
 
   let data;
   try {
     data = JSON.parse(text);
   } catch (e) {
-    log('TX_FETCH invalid JSON', text);
+    log('TX_FETCH_V2 invalid JSON', text);
     throw e;
   }
 
-  const txs = Array.isArray(data.transactions) ? data.transactions : [];
-  log('TX_FETCH success', `got ${txs.length} txs`);
+  let txs = [];
+  if (Array.isArray(data)) {
+    txs = data;
+  } else if (Array.isArray(data.result)) {
+    txs = data.result;
+  } else {
+    txs = [];
+  }
 
+  log('TX_FETCH_V2 success', `got ${txs.length} txs`);
   return txs;
 }
 
+function getIncomingValueNano(tx) {
+  return String(tx?.in_msg?.value || '');
+}
+
+function getIncomingSource(tx) {
+  return String(tx?.in_msg?.source || '');
+}
+
+function getIncomingDestination(tx) {
+  return String(tx?.in_msg?.destination || '');
+}
+
+function getIncomingMessageText(tx) {
+  return String(tx?.in_msg?.msg_data?.message || '');
+}
+
 function isRealIncomingDeposit(tx) {
-  if (!tx) return false;
-  if (tx.description?.type !== 'ord') return false;
-  if (tx?.in_msg?.created_lt === null || tx?.in_msg?.created_lt === undefined) return false;
-
-  const bouncePhase = tx?.description?.bounce;
-  if (bouncePhase && bouncePhase.type === 'ok') return false;
-
+  const inMsg = tx?.in_msg;
+  if (!inMsg) return false;
+  if (!inMsg.value) return false;
   return true;
 }
 
@@ -181,7 +203,10 @@ async function confirmDeposit(orderId, txHash) {
 async function scanDeposits() {
   try {
     const pending = await all(
-      `SELECT * FROM deposits WHERE status IN ('created', 'sent') ORDER BY created_at DESC LIMIT 100`
+      `SELECT * FROM deposits
+       WHERE status IN ('created', 'sent')
+       ORDER BY created_at DESC
+       LIMIT 100`
     );
 
     if (!pending.length) {
@@ -190,7 +215,7 @@ async function scanDeposits() {
     }
 
     log(
-      'SCAN pending deposits:',
+      'SCAN pending deposits',
       pending.map(d => ({
         orderId: d.order_id,
         status: d.status,
@@ -199,48 +224,43 @@ async function scanDeposits() {
       }))
     );
 
-    const txs = await fetchRecentReceiverTransactions();
-
-    if (!txs.length) {
-      log('SCAN no transactions returned from TON API');
-      return;
-    }
+    const txs = await fetchRecentReceiverTransactionsV2();
 
     txs.slice(0, 10).forEach((tx, index) => {
       log(`SCAN tx[${index}]`, {
-        hash: tx?.hash || '',
-        valueNano: String(tx?.in_msg?.value || ''),
-        source: tx?.in_msg?.source || '',
-        destination: tx?.in_msg?.destination || '',
-        descriptionType: tx?.description?.type || '',
+        hash: tx?.transaction_id?.hash || '',
+        valueNano: getIncomingValueNano(tx),
+        source: getIncomingSource(tx),
+        destination: getIncomingDestination(tx),
+        message: getIncomingMessageText(tx),
         isRealIncoming: isRealIncomingDeposit(tx)
       });
     });
 
     for (const deposit of pending) {
-      const exactNano = String(deposit.comment || '');
+      const expectedNano = String(deposit.comment || '');
 
       log('SCAN checking deposit', {
         orderId: deposit.order_id,
-        expectedExactNano: exactNano,
+        expectedExactNano: expectedNano,
         expectedAmountTon: deposit.amount
       });
 
       const match = txs.find(tx => {
         if (!isRealIncomingDeposit(tx)) return false;
-
-        const inValue = String(tx?.in_msg?.value || '');
-        return inValue === exactNano;
+        const inValue = getIncomingValueNano(tx);
+        return inValue === expectedNano;
       });
 
       if (match) {
+        const txHash = String(match?.transaction_id?.hash || '');
         log('SCAN MATCH FOUND', {
           orderId: deposit.order_id,
-          txHash: match.hash || '',
-          valueNano: String(match?.in_msg?.value || '')
+          txHash,
+          valueNano: getIncomingValueNano(match)
         });
 
-        await confirmDeposit(deposit.order_id, match.hash || '');
+        await confirmDeposit(deposit.order_id, txHash);
       } else {
         log('SCAN no match for deposit', deposit.order_id);
       }
@@ -337,6 +357,29 @@ app.post('/api/deposits/create', async (req, res) => {
   } catch (error) {
     log('deposit_create_error', error.message);
     res.status(500).json({ error: 'deposit_create_error' });
+  }
+});
+
+app.post('/api/deposits/mark-sent', async (req, res) => {
+  const { orderId, senderWallet } = req.body;
+
+  if (!orderId) {
+    return res.status(400).json({ error: 'orderId_required' });
+  }
+
+  try {
+    await run(
+      `UPDATE deposits
+       SET status = 'sent', sender_wallet = ?
+       WHERE order_id = ?`,
+      [senderWallet || '', orderId]
+    );
+
+    log('DEPOSIT MARK SENT', { orderId, senderWallet: senderWallet || '' });
+    res.json({ ok: true });
+  } catch (error) {
+    log('mark_sent_error', error.message);
+    res.status(500).json({ error: 'mark_sent_error' });
   }
 });
 
