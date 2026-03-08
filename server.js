@@ -58,18 +58,26 @@ async function ensureUser(telegramId, username = '') {
   );
 }
 
-async function seedSunnyCase() {
+async function seedCases() {
   await run(`DELETE FROM case_drops`);
   await run(`DELETE FROM cases`);
 
-  await run(
-    `INSERT INTO cases
-      (case_key, title, subtitle, price_ton, image, rtp_target, is_active, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, 1, 1)`,
-    ['sunny_case', 'Sunny', 'кейс для самых ярких', 0.5, '🌞', 0.7068]
-  );
+  const cases = [
+    ['sunny_case', 'Sunny', 'кейс для самых ярких', 0.5, '🌞', 0.7068, 1],
+    ['angel_case', 'Angel', 'сам ангел создал этот кейс', 1.0, '😇', 0.7005, 2]
+  ];
+
+  for (const item of cases) {
+    await run(
+      `INSERT INTO cases
+        (case_key, title, subtitle, price_ton, image, rtp_target, is_active, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      item
+    );
+  }
 
   const drops = [
+    // SUNNY
     ['sunny_case', 'sunny_rose', 'Rose', 'gift', 'common', 0.20, 84.6, '🌹', 1, 1, 1],
     ['sunny_case', 'sunny_ton_040', '0.40 TON', 'ton_balance', 'common', 0.40, 8.0, '💎', 0, 0, 1],
     ['sunny_case', 'sunny_ring', 'Ring', 'gift', 'epic', 0.70, 4.0, '💍', 1, 1, 1],
@@ -77,7 +85,19 @@ async function seedSunnyCase() {
     ['sunny_case', 'sunny_ramen', 'Ramen', 'gift', 'legendary', 3.96, 1.0, '🍜', 1, 1, 1],
     ['sunny_case', 'sunny_ice_cream', 'Ice Cream', 'gift', 'legendary', 4.00, 1.0, '🍦', 1, 1, 1],
     ['sunny_case', 'sunny_happy_brownie', 'Happy Brownie', 'gift', 'legendary', 4.26, 0.5, '💩', 1, 1, 1],
-    ['sunny_case', 'sunny_love_potion', 'Love Potion', 'gift', 'mythical', 15.32, 0.1, '🍾', 1, 1, 1]
+    ['sunny_case', 'sunny_love_potion', 'Love Potion', 'gift', 'mythical', 15.32, 0.1, '🍾', 1, 1, 1],
+
+    // ANGEL
+    ['angel_case', 'angel_rose', 'Rose', 'gift', 'common', 0.20, 45.7, '🌹', 1, 1, 1],
+    ['angel_case', 'angel_ton_075', '0.75 TON', 'ton_balance', 'common', 0.75, 42.0, '💎', 0, 0, 1],
+    ['angel_case', 'angel_bouquet', 'Bouquet', 'gift', 'epic', 1.00, 7.0, '💐', 1, 1, 1],
+    ['angel_case', 'angel_ton_3', '3 TON', 'ton_balance', 'epic', 3.00, 3.3, '💎', 0, 0, 1],
+    ['angel_case', 'angel_whip_cupcake', 'Whip Cupcake', 'gift', 'legendary', 4.40, 0.7, '🧁', 1, 1, 1],
+    ['angel_case', 'angel_snoop_dogg', 'Snoop Dogg', 'gift', 'legendary', 4.63, 0.6, '🐕‍🦺', 1, 1, 1],
+    ['angel_case', 'angel_spring_basket', 'Spring Basket', 'gift', 'legendary', 5.32, 0.5, '🐇', 1, 1, 1],
+    ['angel_case', 'angel_ton_15', '15 TON', 'ton_balance', 'mythical', 15.00, 0.1, '💎', 0, 0, 1],
+    ['angel_case', 'angel_ionic_dryer', 'Ionic Dryer', 'gift', 'mythical', 17.64, 0.07, '🐦‍🔥', 1, 1, 1],
+    ['angel_case', 'angel_toy_bear', 'Toy Bear', 'gift', 'mythical', 41.90, 0.03, '🧸', 1, 1, 1]
   ];
 
   for (const drop of drops) {
@@ -534,7 +554,7 @@ app.use((req, res) => {
 
 async function start() {
   try {
-    await seedSunnyCase();
+    await seedCases();
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`AngelCase backend running on port ${PORT}`);
