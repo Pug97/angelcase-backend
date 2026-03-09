@@ -63,8 +63,13 @@ async function seedCases() {
   await run(`DELETE FROM cases`);
 
   const cases = [
-    ['sunny_case', 'Sunny', 'кейс для самых ярких', 0.5, '🌞', 0.7068, 1],
-    ['angel_case', 'Angel', 'сам ангел создал этот кейс', 1.0, '😇', 0.7005, 2]
+    ['chance_nft_case', 'Chance NFT', 'удача на твоей стороне?', 0.1, '🍀', 0.89, 1],
+    ['sunny_case', 'Sunny', 'кейс для самых ярких', 0.5, '🌞', 0.84068, 2],
+    ['angel_case', 'Angel', 'сам ангел создал этот кейс', 1.0, '😇', 0.81038, 3],
+    ['sacred_case', 'Sacred', 'ты избранный', 3.0, '😇', 0.78753, 4],
+    ['only_nft_case', 'Only NFT', 'ты избранный', 6.0, '🐵', 0.76992, 5],
+    ['vampire_case', 'Vampire', 'ты избранный', 6.0, '🧛‍♀️', 0.92001, 6],
+    ['magic_halo_case', 'Magic Halo', 'ты избранный', 11.5, '😇', 0.75311, 7]
   ];
 
   for (const item of cases) {
@@ -77,27 +82,81 @@ async function seedCases() {
   }
 
   const drops = [
-    // SUNNY
-    ['sunny_case', 'sunny_rose', 'Rose', 'gift', 'common', 0.20, 84.6, '🌹', 1, 1, 1],
-    ['sunny_case', 'sunny_ton_040', '0.40 TON', 'ton_balance', 'common', 0.40, 8.0, '💎', 0, 0, 1],
-    ['sunny_case', 'sunny_ring', 'Ring', 'gift', 'epic', 0.70, 4.0, '💍', 1, 1, 1],
-    ['sunny_case', 'sunny_trophy', 'Trophy', 'gift', 'epic', 1.00, 0.8, '🏆', 1, 1, 1],
-    ['sunny_case', 'sunny_ramen', 'Ramen', 'gift', 'legendary', 3.96, 1.0, '🍜', 1, 1, 1],
-    ['sunny_case', 'sunny_ice_cream', 'Ice Cream', 'gift', 'legendary', 4.00, 1.0, '🍦', 1, 1, 1],
+    // CHANCE NFT — RTP 89.00%
+    ['chance_nft_case', 'chance_ton_001', '0.01 TON', 'ton_balance', 'common', 0.01, 98.0, '💎', 0, 0, 1],
+    ['chance_nft_case', 'chance_instant_ramen', 'Instant Ramen', 'gift', 'mythical', 3.96, 2.0, '🍜', 1, 1, 1],
+
+    // SUNNY — RTP 84.07%
+    ['sunny_case', 'sunny_rose', 'Rose', 'gift', 'common', 0.20, 56.0, '🌹', 1, 1, 1],
+    ['sunny_case', 'sunny_ton_040', '0.40 TON', 'ton_balance', 'common', 0.40, 28.0, '💎', 0, 0, 1],
+    ['sunny_case', 'sunny_ring', 'Ring', 'gift', 'epic', 0.70, 12.0, '💍', 1, 1, 1],
+    ['sunny_case', 'sunny_trophy', 'Trophy', 'gift', 'epic', 1.00, 2.0, '🏆', 1, 1, 1],
+    ['sunny_case', 'sunny_ramen', 'Ramen', 'gift', 'legendary', 3.96, 0.7, '🍜', 1, 1, 1],
+    ['sunny_case', 'sunny_ice_cream', 'Ice Cream', 'gift', 'legendary', 4.00, 0.7, '🍦', 1, 1, 1],
     ['sunny_case', 'sunny_happy_brownie', 'Happy Brownie', 'gift', 'legendary', 4.26, 0.5, '💩', 1, 1, 1],
     ['sunny_case', 'sunny_love_potion', 'Love Potion', 'gift', 'mythical', 15.32, 0.1, '🍾', 1, 1, 1],
 
-    // ANGEL
-    ['angel_case', 'angel_rose', 'Rose', 'gift', 'common', 0.20, 45.7, '🌹', 1, 1, 1],
-    ['angel_case', 'angel_ton_075', '0.75 TON', 'ton_balance', 'common', 0.75, 42.0, '💎', 0, 0, 1],
-    ['angel_case', 'angel_bouquet', 'Bouquet', 'gift', 'epic', 1.00, 7.0, '💐', 1, 1, 1],
-    ['angel_case', 'angel_ton_3', '3 TON', 'ton_balance', 'epic', 3.00, 3.3, '💎', 0, 0, 1],
-    ['angel_case', 'angel_whip_cupcake', 'Whip Cupcake', 'gift', 'legendary', 4.40, 0.7, '🧁', 1, 1, 1],
-    ['angel_case', 'angel_snoop_dogg', 'Snoop Dogg', 'gift', 'legendary', 4.63, 0.6, '🐕‍🦺', 1, 1, 1],
-    ['angel_case', 'angel_spring_basket', 'Spring Basket', 'gift', 'legendary', 5.32, 0.5, '🐇', 1, 1, 1],
+    // ANGEL — RTP 81.04%
+    ['angel_case', 'angel_rose', 'Rose', 'gift', 'common', 0.20, 40.0, '🌹', 1, 1, 1],
+    ['angel_case', 'angel_ton_075', '0.75 TON', 'ton_balance', 'common', 0.75, 39.0, '💎', 0, 0, 1],
+    ['angel_case', 'angel_bouquet', 'Bouquet', 'gift', 'epic', 1.00, 13.0, '💐', 1, 1, 1],
+    ['angel_case', 'angel_ton_3', '3 TON', 'ton_balance', 'epic', 3.00, 6.0, '💎', 0, 0, 1],
+    ['angel_case', 'angel_whip_cupcake', 'Whip Cupcake', 'gift', 'legendary', 4.40, 1.0, '🧁', 1, 1, 1],
+    ['angel_case', 'angel_snoop_dogg', 'Snoop Dogg', 'gift', 'legendary', 4.63, 0.5, '🐕‍🦺', 1, 1, 1],
+    ['angel_case', 'angel_spring_basket', 'Spring Basket', 'gift', 'legendary', 5.32, 0.3, '🐇', 1, 1, 1],
     ['angel_case', 'angel_ton_15', '15 TON', 'ton_balance', 'mythical', 15.00, 0.1, '💎', 0, 0, 1],
-    ['angel_case', 'angel_ionic_dryer', 'Ionic Dryer', 'gift', 'mythical', 17.64, 0.07, '🐦‍🔥', 1, 1, 1],
-    ['angel_case', 'angel_toy_bear', 'Toy Bear', 'gift', 'mythical', 41.90, 0.03, '🧸', 1, 1, 1]
+    ['angel_case', 'angel_ionic_dryer', 'Ionic Dryer', 'gift', 'mythical', 17.64, 0.05, '🐦‍🔥', 1, 1, 1],
+    ['angel_case', 'angel_toy_bear', 'Toy Bear', 'gift', 'mythical', 41.90, 0.05, '🧸', 1, 1, 1],
+
+    // SACRED — RTP 78.75%
+    ['sacred_case', 'sacred_trophy', 'Trophy', 'gift', 'common', 0.50, 38.0, '🏆', 1, 1, 1],
+    ['sacred_case', 'sacred_ton_1', '1 TON', 'ton_balance', 'epic', 1.00, 34.0, '💎', 0, 0, 1],
+    ['sacred_case', 'sacred_bday_glitch', 'B-Day Glitch', 'gift', 'legendary', 4.40, 12.0, '📆', 1, 1, 1],
+    ['sacred_case', 'sacred_happy_brownie_homer', 'Happy Brownie Homer', 'gift', 'legendary', 4.79, 5.0, '💩🍻', 1, 1, 1],
+    ['sacred_case', 'sacred_restless_jar', 'Restless Jar', 'gift', 'legendary', 5.22, 5.0, '🛢', 1, 1, 1],
+    ['sacred_case', 'sacred_happy_brownie_holy_shit', 'Happy Brownie Holy Shit', 'gift', 'legendary', 6.99, 4.0, '🌞', 1, 1, 1],
+    ['sacred_case', 'sacred_jolly_chimp', 'Jolly Chimp Chimp imp', 'gift', 'mythical', 10.45, 1.0, '🐵', 1, 1, 1],
+    ['sacred_case', 'sacred_love_potion_no_signal', 'Love Potion No Signal', 'gift', 'mythical', 42.00, 1.0, '🪴', 1, 1, 1],
+
+    // ONLY NFT — RTP 76.99%
+    ['only_nft_case', 'only_snake_box', 'Snake Box', 'gift', 'legendary', 3.96, 20.0, '🐍', 1, 1, 1],
+    ['only_nft_case', 'only_lol_pop', 'Lol Pop', 'gift', 'legendary', 4.25, 23.0, '🍭', 1, 1, 1],
+    ['only_nft_case', 'only_jester_hat', 'Jester Hat', 'gift', 'legendary', 4.39, 23.0, '🎩', 1, 1, 1],
+    ['only_nft_case', 'only_cookie_heart', 'Cookie Heart', 'gift', 'legendary', 4.77, 20.0, '🍪', 1, 1, 1],
+    ['only_nft_case', 'only_lol_pop_sweetheart', 'Lol Pop Sweetheart', 'gift', 'legendary', 5.40, 12.0, '🍭', 1, 1, 1],
+    ['only_nft_case', 'only_bunny_muffin', 'Bunny Muffin', 'gift', 'legendary', 7.14, 1.0, '🐇', 1, 1, 1],
+    ['only_nft_case', 'only_sakura_flower', 'Sakura Flower', 'gift', 'legendary', 10.39, 0.8, '🌸', 1, 1, 1],
+    ['only_nft_case', 'only_toy_bear', 'Toy Bear', 'gift', 'mythical', 41.89, 0.2, '🧸', 1, 1, 1],
+
+    // VAMPIRE — RTP 92.00%
+    ['vampire_case', 'vampire_whip_cupcake_dracula', 'Whip Cupcake Dracula', 'gift', 'legendary', 5.40, 88.0, '🧛', 1, 1, 1],
+    ['vampire_case', 'vampire_money_pot_blood_moon', 'Money Pot Blood Moon', 'gift', 'legendary', 5.65, 6.0, '🧛‍♀️🛢', 1, 1, 1],
+    ['vampire_case', 'vampire_lol_pop_blood_sucker', 'Lol Pop Blood Sucker', 'gift', 'legendary', 6.25, 3.0, '🍭', 1, 1, 1],
+    ['vampire_case', 'vampire_snow_globe_dracula', 'Snow Globe Dracula', 'gift', 'legendary', 6.66, 0.5, '❄️', 1, 1, 1],
+    ['vampire_case', 'vampire_spring_basket_candy_bat', 'Spring Basket Candy Bat', 'gift', 'legendary', 6.70, 1.0, '🌿🛍', 1, 1, 1],
+    ['vampire_case', 'vampire_bow_tie_vampire', 'Bow Tie Vampire', 'gift', 'legendary', 7.15, 1.0, '🏹', 1, 1, 1],
+    ['vampire_case', 'vampire_input_key_press_f', 'Input Key Press F', 'gift', 'legendary', 8.80, 0.2, '🍾', 1, 1, 1],
+    ['vampire_case', 'vampire_jolly_chimp_count_macaqula', 'Jolly Chimp Count Macaqula', 'gift', 'legendary', 13.90, 0.2, '🧸', 1, 1, 1],
+    ['vampire_case', 'vampire_ginger_cookie_dracula', 'Ginger Cookie Dracula', 'gift', 'mythical', 18.88, 0.05, '🍪🧛', 1, 1, 1],
+    ['vampire_case', 'vampire_cupid_charm_count_gem', 'Cupid Charm Count Gem', 'gift', 'mythical', 21.50, 0.02, '❤️🧛', 1, 1, 1],
+    ['vampire_case', 'vampire_valentine_box_vampire', 'Valentine Box Vampire', 'gift', 'mythical', 29.89, 0.02, '🧛', 1, 1, 1],
+    ['vampire_case', 'vampire_dimond_ring_nocturne', 'Dimond Ring Nocturne', 'gift', 'mythical', 46.64, 0.01, '💍🧛', 1, 1, 1],
+
+    // MAGIC HALO — RTP 75.31%
+    ['magic_halo_case', 'magic_bow_tie', 'Bow Tie', 'gift', 'legendary', 5.81, 21.0, '😇', 1, 1, 1],
+    ['magic_halo_case', 'magic_jelly_bunny', 'Jelly Bunny', 'gift', 'legendary', 7.85, 17.0, '💫', 1, 1, 1],
+    ['magic_halo_case', 'magic_jolly_chimp_luminous', 'Jolly Chimp Luminous', 'gift', 'legendary', 8.00, 15.0, '💫😇', 1, 1, 1],
+    ['magic_halo_case', 'magic_hanging_star', 'Hanging Star', 'gift', 'legendary', 8.81, 15.0, '⭐️', 1, 1, 1],
+    ['magic_halo_case', 'magic_sleigh_bell_night_club', 'Sleigh Bell Night Club', 'gift', 'legendary', 10.11, 11.0, '⭐️💫🤩', 1, 1, 1],
+    ['magic_halo_case', 'magic_sakura_flower', 'Sakura Flower', 'gift', 'legendary', 10.19, 8.0, '🏹', 1, 1, 1],
+    ['magic_halo_case', 'magic_crystal_ball', 'Crystal Ball', 'gift', 'legendary', 11.08, 6.0, '🍾', 1, 1, 1],
+    ['magic_halo_case', 'magic_top_hat', 'Top Hat', 'gift', 'legendary', 11.57, 4.0, '🧸', 1, 1, 1],
+    ['magic_halo_case', 'magic_mad_pumpkin_purple_imp', 'Mad Pumpkin Purple Imp', 'gift', 'mythical', 14.50, 1.5, '🍪🧛', 1, 1, 1],
+    ['magic_halo_case', 'magic_love_potion', 'Love Potion', 'gift', 'mythical', 15.40, 0.8, '❤️', 1, 1, 1],
+    ['magic_halo_case', 'magic_cupid_charm', 'Cupid Charm', 'gift', 'mythical', 21.13, 0.4, '🧛', 1, 1, 1],
+    ['magic_halo_case', 'magic_dimond_ring', 'Dimond Ring', 'gift', 'mythical', 27.75, 0.2, '💍', 1, 1, 1],
+    ['magic_halo_case', 'magic_neko_helmet', 'Neko Helmet', 'gift', 'mythical', 37.90, 0.05, '💍', 1, 1, 1],
+    ['magic_halo_case', 'magic_kissed_frog', 'Kissed Frog', 'gift', 'mythical', 60.19, 0.05, '💍', 1, 1, 1]
   ];
 
   for (const drop of drops) {
